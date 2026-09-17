@@ -1,12 +1,50 @@
 package datamart
 
+import org.apache.spark.sql.{DataFrame, SparkSession}
+
 import java.sql.{Connection, DriverManager, PreparedStatement, Types}
 import scala.util.Using
 
 import Protocol._
 
-final class MsSqlStore(cfg: DatasourceConfig) {
+final class MsSqlStore(spark: SparkSession, cfg: DatasourceConfig) {
   private val runs = s"${cfg.mlSchema}.model_runs"
+  private val processed = s"${cfg.rawSchema}.processed_data"
+  private val predictions = s"${cfg.mlSchema}.predictions"
+
+  def readFeatures(limit: Option[Int]): DataFrame = {
+    val (top, order) = limit.fold(("", ""))(n => (s"TOP $n ", " ORDER BY product_id"))
+    val notNull = FeatureColumns.map(c => s"$c IS NOT NULL").mkString(" AND ")
+    readQuery(s"SELECT ${top}code, ${FeatureColumns.mkString(", ")} FROM $processed WHERE $notNull$order")
+  }
+
+  def readPredictions(runId: Int): DataFrame = {
+    val features = FeatureColumns.map(c => s"d.$c").mkString(", ")
+    readQuery(
+      s"SELECT p.code, p.cluster_id, $features FROM $predictions p " +
+        s"JOIN $processed d ON d.code = p.code WHERE p.run_id = $runId"
+    )
+  }
+
+  def writePredictions(runId: Int, rows: Seq[PredictionRow]): Unit = {
+    import spark.implicits._
+    rows
+      .map(r => (runId, r.code, r.clusterId))
+      .toDF("run_id", "code", "cluster_id")
+      .write
+      .format("jdbc")
+      .options(jdbcOptions)
+      .option("dbtable", predictions)
+      .option("batchsize", cfg.batchSize.toString)
+      .mode("append")
+      .save()
+  }
+
+  def runExists(runId: Int): Boolean =
+    exists(s"SELECT 1 FROM $runs WHERE run_id = ?", runId)
+
+  def hasPredictions(runId: Int): Boolean =
+    exists(s"SELECT TOP 1 1 FROM $predictions WHERE run_id = ?", runId)
 
   def startRun(req: StartRunRequest): Int =
     withConnection { conn =>
@@ -61,6 +99,29 @@ final class MsSqlStore(cfg: DatasourceConfig) {
         Using.resource(st.executeQuery()) { rs =>
           if (rs.next()) Some(TrainRun(rs.getInt(1), rs.getString(2), rs.getString(3))) else None
         }
+      }
+    }
+
+  private def jdbcOptions: Map[String, String] = Map(
+    "url" -> cfg.jdbcUrl,
+    "driver" -> "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+    "user" -> cfg.user,
+    "password" -> cfg.password
+  )
+
+  private def readQuery(sql: String): DataFrame =
+    spark.read
+      .format("jdbc")
+      .options(jdbcOptions)
+      .option("query", sql)
+      .option("fetchsize", cfg.fetchSize.toString)
+      .load()
+
+  private def exists(sql: String, id: Int): Boolean =
+    withConnection { conn =>
+      Using.resource(conn.prepareStatement(sql)) { st =>
+        st.setInt(1, id)
+        Using.resource(st.executeQuery())(_.next())
       }
     }
 

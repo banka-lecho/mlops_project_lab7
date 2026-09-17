@@ -2,7 +2,7 @@ package datamart
 
 import com.sun.net.httpserver.{HttpExchange, HttpServer}
 import io.circe.Json
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.slf4j.LoggerFactory
 
 import java.net.InetSocketAddress
@@ -38,7 +38,7 @@ object DataMartApp {
       )
     }
 
-    val store = new MsSqlStore(config.datasource)
+    val store = new MsSqlStore(spark, config.datasource)
 
     route(server, "POST", "/v1/runs/start") { body =>
       val req = decodeRequest[StartRunRequest](body)
@@ -65,6 +65,43 @@ object DataMartApp {
         "runId" -> Json.fromInt(run.runId),
         "modelPath" -> Json.fromString(run.modelPath),
         "scalerPath" -> Json.fromString(run.scalerPath)
+      )
+    }
+
+    route(server, "POST", "/v1/features") { body =>
+      val req = decodeRequest[FeaturesRequest](body)
+      if (req.limit.exists(_ <= 0)) throw badRequest("limit должен быть положительным")
+      val rows = toJsonRows(store.readFeatures(req.limit))
+      if (rows.isEmpty)
+        throw ProtocolError(409, "raw.processed_data пуста — сначала выполните предобработку")
+      Json.obj(
+        "featureCols" -> Json.fromValues(FeatureColumns.map(Json.fromString)),
+        "rowCount" -> Json.fromInt(rows.size),
+        "rows" -> Json.fromValues(rows)
+      )
+    }
+
+    route(server, "POST", "/v1/predictions") { body =>
+      val req = decodeRequest[SavePredictionsRequest](body)
+      if (req.rows.isEmpty) throw badRequest("rows пуст")
+      if (req.rows.map(_.code).distinct.size != req.rows.size)
+        throw badRequest("В rows повторяется code: у товара в запуске ровно один кластер")
+      if (!store.runExists(req.runId)) throw ProtocolError(404, s"Запуск run_id=${req.runId} не найден")
+      if (store.hasPredictions(req.runId))
+        throw ProtocolError(409, s"Предсказания для run_id=${req.runId} уже сохранены")
+      store.writePredictions(req.runId, req.rows)
+      Json.obj("runId" -> Json.fromInt(req.runId), "saved" -> Json.fromInt(req.rows.size))
+    }
+
+    route(server, "POST", "/v1/predictions/get") { body =>
+      val req = decodeRequest[GetPredictionsRequest](body)
+      val rows = toJsonRows(store.readPredictions(req.runId))
+      if (rows.isEmpty) throw ProtocolError(404, s"Нет предсказаний для run_id=${req.runId}")
+      Json.obj(
+        "runId" -> Json.fromInt(req.runId),
+        "featureCols" -> Json.fromValues(FeatureColumns.map(Json.fromString)),
+        "rowCount" -> Json.fromInt(rows.size),
+        "rows" -> Json.fromValues(rows)
       )
     }
 
@@ -109,6 +146,23 @@ object DataMartApp {
             write(exchange, 500, error(s"${e.getClass.getSimpleName}: ${e.getMessage}"))
         } finally exchange.close()
     )
+
+  private def toJsonRows(df: DataFrame): Vector[Json] = {
+    val columns = df.columns.toVector
+    df.collect().iterator.map { row =>
+      Json.fromFields(columns.indices.map(i => columns(i) -> cellToJson(row, i)))
+    }.toVector
+  }
+
+  private def cellToJson(row: Row, i: Int): Json =
+    if (row.isNullAt(i)) Json.Null
+    else
+      row.get(i) match {
+        case v: String => Json.fromString(v)
+        case v: Int    => Json.fromInt(v)
+        case v: Double => Json.fromDoubleOrNull(v)
+        case v         => Json.fromString(v.toString)
+      }
 
   private def write(exchange: HttpExchange, code: Int, json: Json): Unit = {
     val bytes = json.noSpaces.getBytes(StandardCharsets.UTF_8)

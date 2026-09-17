@@ -25,9 +25,32 @@ object Protocol {
 
   final case class TrainRun(runId: Int, modelPath: String, scalerPath: String)
 
+  val FeatureColumns: Seq[String] = Seq(
+    "energy_kcal_100g",
+    "fat_100g",
+    "saturated_fat_100g",
+    "carbohydrates_100g",
+    "sugars_100g",
+    "proteins_100g",
+    "salt_100g"
+  )
+
+  final case class FeaturesRequest(limit: Option[Int])
+
+  final case class PredictionRow(code: String, clusterId: Int)
+
+  final case class SavePredictionsRequest(runId: Int, rows: Seq[PredictionRow])
+
+  final case class GetPredictionsRequest(runId: Int)
+
   implicit val startRunDecoder: Decoder[StartRunRequest] = deriveDecoder
   implicit val finishRunDecoder: Decoder[FinishRunRequest] = deriveDecoder
   implicit val trainRunDecoder: Decoder[TrainRunRequest] = deriveDecoder
+  implicit val featuresDecoder: Decoder[FeaturesRequest] = deriveDecoder
+  implicit val predictionRowDecoder: Decoder[PredictionRow] =
+    Decoder.forProduct2("code", "cluster_id")(PredictionRow.apply)
+  implicit val savePredictionsDecoder: Decoder[SavePredictionsRequest] = deriveDecoder
+  implicit val getPredictionsDecoder: Decoder[GetPredictionsRequest] = deriveDecoder
 
   val Status = "status"
   val Data = "data"
