@@ -1,0 +1,28 @@
+# garbage
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+*.DS_Store
+logs/
+
+# venv
+.lab6_venv
+.DS_Store
+
+# секреты (шаблон — .env.example)
+.env
+
+# data (сырой CSV ~13 ГБ и производные parquet)
+data/
+
+# spark
+spark-warehouse/
+metastore_db/
+derby.log
+
+# reports and models
+reports/preprocess_report/
+models
