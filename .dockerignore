@@ -13,3 +13,6 @@ spark-warehouse
 metastore_db
 *.log
 .DS_Store
+datamart/target
+datamart/project/target
+datamart/project/project

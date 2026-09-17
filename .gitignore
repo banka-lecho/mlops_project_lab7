@@ -9,7 +9,7 @@ htmlcov/
 logs/
 
 # venv
-.lab6_venv
+.lab7_venv
 .DS_Store
 
 # секреты (шаблон — .env.example)
@@ -26,3 +26,9 @@ derby.log
 # reports and models
 reports/preprocess_report/
 models
+# scala / sbt
+datamart/target/
+datamart/project/target/
+datamart/project/project/
+.bsp/
+.metals/
