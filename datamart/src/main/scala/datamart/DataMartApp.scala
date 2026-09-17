@@ -38,6 +38,36 @@ object DataMartApp {
       )
     }
 
+    val store = new MsSqlStore(config.datasource)
+
+    route(server, "POST", "/v1/runs/start") { body =>
+      val req = decodeRequest[StartRunRequest](body)
+      if (!RunCommands.contains(req.command))
+        throw badRequest(s"command должен быть одним из ${RunCommands.mkString(", ")}")
+      Json.obj("runId" -> Json.fromInt(store.startRun(req)))
+    }
+
+    route(server, "POST", "/v1/runs/finish") { body =>
+      val req = decodeRequest[FinishRunRequest](body)
+      if (!FinishStatuses.contains(req.status))
+        throw badRequest(s"status должен быть одним из ${FinishStatuses.mkString(", ")}")
+      if (!store.finishRun(req)) throw ProtocolError(404, s"Запуск run_id=${req.runId} не найден")
+      Json.obj("runId" -> Json.fromInt(req.runId))
+    }
+
+    route(server, "POST", "/v1/runs/train") { body =>
+      val req = decodeRequest[TrainRunRequest](body)
+      val run = store.getTrainRun(req.runId).getOrElse {
+        val which = req.runId.fold("ни одного")(id => s"run_id=$id")
+        throw ProtocolError(404, s"Не найден успешный запуск обучения с сохранённой моделью ($which)")
+      }
+      Json.obj(
+        "runId" -> Json.fromInt(run.runId),
+        "modelPath" -> Json.fromString(run.modelPath),
+        "scalerPath" -> Json.fromString(run.scalerPath)
+      )
+    }
+
     server.createContext(
       "/",
       (exchange: HttpExchange) =>
