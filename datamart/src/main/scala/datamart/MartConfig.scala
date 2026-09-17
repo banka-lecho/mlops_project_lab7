@@ -26,7 +26,7 @@ final case class DatasourceConfig(
   def jdbcUrl: String =
     s"jdbc:sqlserver://$host:$port;databaseName=$database;encrypt=true;trustServerCertificate=true"
 
-  override def toString: String = s"DatasourceConfig($host:$port/$database)" // без пароля в логах
+  override def toString: String = s"DatasourceConfig($host:$port/$database)" 
 }
 
 final case class MartConfig(server: ServerConfig, spark: SparkConfig, datasource: DatasourceConfig)

@@ -44,7 +44,7 @@ object DataMartApp {
       val req = decodeRequest[StartRunRequest](body)
       if (!RunCommands.contains(req.command))
         throw badRequest(s"command должен быть одним из ${RunCommands.mkString(", ")}")
-      Json.obj("runId" -> Json.fromInt(store.startRun(req)))
+      Json.obj("runId" -> Json.fromInt(store.startRun(req))) 
     }
 
     route(server, "POST", "/v1/runs/finish") { body =>
@@ -153,7 +153,6 @@ object DataMartApp {
       Json.fromFields(columns.indices.map(i => columns(i) -> cellToJson(row, i)))
     }.toVector
   }
-
   private def cellToJson(row: Row, i: Int): Json =
     if (row.isNullAt(i)) Json.Null
     else

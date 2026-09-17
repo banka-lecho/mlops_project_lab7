@@ -8,7 +8,7 @@ from pyspark.ml.feature import StandardScaler, StandardScalerModel, VectorAssemb
 
 from logger import get_logger
 from spark_session import create_spark, plan_resources
-from datasource import MsSqlDataSource
+from datamart_client import DataMartClient
 from utils import load_config
 
 logger = get_logger(__name__)
@@ -87,19 +87,20 @@ class ModelKMEANS:
 
     def train(self):
         """Train KMeans model."""
-        ds = MsSqlDataSource()
+        mart = DataMartClient()
         resources = plan_resources(self.config.spark)
         spark = create_spark(self.config.spark, resources)
 
         params = {
             "k_min": self.config.model.k_min,
             "k_max": self.config.model.k_max,
-            "features": self.config.features.numeric,
         }
-        run_id = ds.start_run("train", self.config.model.scaler_path, params)
+        run_id = mart.start_run("train", self.config.model.scaler_path, params)
         logger.info("Запуск обучения зарегистрирован: run_id=%d", run_id)
         try:
-            numeric_features = self.config.features.numeric
+            df, numeric_features = mart.get_features(spark)
+            params["features"] = numeric_features
+
             vec_assembler = VectorAssembler(
                 inputCols=numeric_features, outputCol="features"
             )
@@ -109,11 +110,6 @@ class ModelKMEANS:
                 withStd=True,
                 withMean=False,
             )
-            df = ds.fetch_training_data(spark)
-            if df.isEmpty():
-                raise ValueError(
-                    "raw.processed_data пуста — сначала запустите `python src/main.py preprocess`"
-                )
 
             final_data = vec_assembler.transform(df)
             final_data.select("features").show(5)
@@ -131,8 +127,8 @@ class ModelKMEANS:
             scalerModel.write().overwrite().save(scaler_path)
             logger.info("Модель сохранена в %s, скейлер в %s", model_path, scaler_path)
 
-            ds.save_predictions(predictions, run_id)
-            ds.finish_run(
+            mart.save_predictions(predictions, run_id)
+            mart.finish_run(
                 run_id,
                 "SUCCESS",
                 rows_in=df.count(),
@@ -149,33 +145,31 @@ class ModelKMEANS:
             )
         except Exception as exc:
             logger.exception("Запуск %d упал", run_id)
-            ds.finish_run(run_id, "FAILED", error_message=repr(exc))
+            mart.finish_run(run_id, "FAILED", error_message=repr(exc))
             raise
         finally:
             spark.stop()
 
     def predict(self, predictions_path, train_run_id=None, df=None):
         """Применяет модель запуска обучения (по умолчанию последнего успешного) к данным из БД."""
-        ds = MsSqlDataSource()
-        train_run = ds.get_train_run(train_run_id)
+        mart = DataMartClient()
+        train_run = mart.get_train_run(train_run_id)
         logger.info("Использую модель запуска обучения run_id=%d", train_run["run_id"])
 
         resources = plan_resources(self.config.spark)
         spark = create_spark(self.config.spark, resources)
 
         params = {"train_run_id": train_run["run_id"], "model_path": train_run["model_path"]}
-        run_id = ds.start_run("predict", train_run["scaler_path"], params)
+        run_id = mart.start_run("predict", train_run["scaler_path"], params)
         logger.info("Запуск предсказания зарегистрирован: run_id=%d", run_id)
         try:
             if df is None:
-                df = ds.fetch_training_data(spark)
-            if df.isEmpty():
-                raise ValueError(
-                    "Нет данных для предсказания — сначала запустите `python src/main.py preprocess`"
-                )
+                df, numeric_features = mart.get_features(spark)
+            else:
+                numeric_features = [c for c in df.columns if c != "code"]
 
             vec_assembler = VectorAssembler(
-                inputCols=self.config.features.numeric, outputCol="features"
+                inputCols=numeric_features, outputCol="features"
             )
             scaler_model = StandardScalerModel.load(train_run["scaler_path"])
             kmeans_model = KMeansModel.load(train_run["model_path"])
@@ -184,12 +178,12 @@ class ModelKMEANS:
             scaled_df = scaler_model.transform(features_df)
             predictions = kmeans_model.transform(scaled_df)
 
-            ds.save_predictions(predictions, run_id)
-            ds.finish_run(
+            mart.save_predictions(predictions, run_id)
+            mart.finish_run(
                 run_id, "SUCCESS", rows_in=df.count(), best_k=kmeans_model.getK()
             )
 
-            result = ds.fetch_predictions(spark, run_id)
+            result = mart.get_predictions(spark, run_id)
             result.groupBy("cluster_id").count().orderBy("cluster_id").show()
             result.show(5)
 
@@ -197,7 +191,7 @@ class ModelKMEANS:
             logger.info("Запуск %d завершён, предсказания выгружены в %s", run_id, predictions_path)
         except Exception as exc:
             logger.exception("Запуск %d упал", run_id)
-            ds.finish_run(run_id, "FAILED", error_message=repr(exc))
+            mart.finish_run(run_id, "FAILED", error_message=repr(exc))
             raise
         finally:
             spark.stop()

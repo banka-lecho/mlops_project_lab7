@@ -1,7 +1,7 @@
 services:
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: mssql-lab6
+    container_name: mssql-lab7
     platform: linux/amd64
     environment:
       ACCEPT_EULA: "Y"
@@ -36,13 +36,36 @@ services:
     command: ['/opt/mssql-tools18/bin/sqlcmd -S mssql -U sa -P "$$MSSQL_SA_PASSWORD" -C -b -i /schema/schema.sql']
     restart: "no"
 
+  datamart:
+    build:
+      context: .
+      dockerfile: Dockerfile.datamart
+    image: mlops-datamart
+    container_name: openfoodfacts-datamart
+    environment:
+      MSSQL_HOST: mssql
+      MSSQL_USER: ${MSSQL_USER:?задайте MSSQL_USER в .env}
+      MSSQL_PASSWORD: ${MSSQL_PASSWORD:?задайте MSSQL_PASSWORD в .env}
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8090'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      mssql-init:
+        condition: service_completed_successfully
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mlops-lab6
+    image: mlops-lab7
     container_name: openfoodfacts-kmeans-app
     environment:
+      DATAMART_URL: http://datamart:8090
       MSSQL_HOST: mssql
       MSSQL_USER: ${MSSQL_USER:?задайте MSSQL_USER в .env}
       MSSQL_PASSWORD: ${MSSQL_PASSWORD:?задайте MSSQL_PASSWORD в .env}
@@ -52,8 +75,8 @@ services:
       - ./models:/app/models
       - ./reports:/app/reports
     depends_on:
-      mssql-init:
-        condition: service_completed_successfully
+      datamart:
+        condition: service_healthy
     command: ["preprocess"]
 
 volumes:

@@ -50,6 +50,11 @@
     "k_min": 2,
     "k_max": 10
   },
+  "datamart": {
+    "url": "http://localhost:8090",
+    "timeout_sec": 900,
+    "startup_retries": 60
+  },
   "datasource": {
     "host": "localhost",
     "port": "1433",

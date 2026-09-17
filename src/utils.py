@@ -53,6 +53,13 @@ class ModelConfig:
 
 
 @dataclass(frozen=True)
+class DataMartConfig:
+    url: str
+    timeout_sec: int
+    startup_retries: int
+
+
+@dataclass(frozen=True)
 class DBConfig:
     host: str
     port: str
@@ -71,6 +78,7 @@ class Config:
     cleaning: CleaningConfig
     sampling: SamplingConfig
     model: ModelConfig
+    datamart: DataMartConfig
     database: DBConfig
 
 
@@ -92,5 +100,6 @@ def load_config(config_path: str | None = None) -> Config:
         cleaning=CleaningConfig(**data["cleaning"]),
         sampling=SamplingConfig(**data["sampling"]),
         model=ModelConfig(**data["model"]),
+        datamart=DataMartConfig(**data["datamart"]),
         database=DBConfig(**data["datasource"]),
     )
