@@ -18,7 +18,6 @@ final class MsSqlStore(spark: SparkSession, cfg: DatasourceConfig) {
     readQuery(s"SELECT ${top}code, ${FeatureColumns.mkString(", ")} FROM $processed WHERE $notNull$order")
   }
 
-  /** Заменяет содержимое raw.processed_data подготовленной выборкой. */
   def writeProcessed(df: DataFrame): Unit =
     df.select("code", FeatureColumns: _*).write
       .format("jdbc")

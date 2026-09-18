@@ -9,11 +9,9 @@ import java.nio.file.{Files, Paths}
 
 import Protocol._
 
-/** Сырой CSV -> отбор колонок -> очистка -> выборка -> raw.processed_data. */
 final class Preprocessor(spark: SparkSession, config: MartConfig, store: MsSqlStore) {
-  private val reserveMb = 300 // столько памяти Spark держит вне своих пулов
+  private val reserveMb = 300
 
-  // в CSV Open Food Facts часть колонок названа через дефис
   private val csvNames = Map(
     "energy_kcal_100g" -> "energy-kcal_100g",
     "saturated_fat_100g" -> "saturated-fat_100g"
@@ -50,7 +48,6 @@ final class Preprocessor(spark: SparkSession, config: MartConfig, store: MsSqlSt
     report
   }
 
-  /** Только нужные колонки CSV, сразу под именами колонок базы. */
   private def readRaw(path: String): DataFrame = {
     val columns = FeatureColumns.map(name => col(s"`${csvNames.getOrElse(name, name)}`").cast("double").alias(name))
     spark.read
@@ -61,7 +58,6 @@ final class Preprocessor(spark: SparkSession, config: MartConfig, store: MsSqlSt
       .select(col("code") +: columns: _*)
   }
 
-  /** Шаги очистки с числом строк после каждого: физически невозможные значения отбрасываем. */
   private def clean(input: DataFrame): (DataFrame, Seq[(String, Long)]) = {
     val steps: Seq[(String, DataFrame => DataFrame)] = Seq(
       "duplicates" -> (df => df.filter(col("code").isNotNull && length(col("code")) <= 64).dropDuplicates("code")),
@@ -83,7 +79,6 @@ final class Preprocessor(spark: SparkSession, config: MartConfig, store: MsSqlSt
     (current, stats)
   }
 
-  /** Минимум из: сколько строк есть, что успеет обработать CPU, что влезет в кэш, и потолка из конфига. */
   private def sampleSize(totalRows: Long, maxRows: Int): SampleSize = {
     val cores = Runtime.getRuntime.availableProcessors()
     val memoryFraction = spark.conf.get("spark.memory.fraction", "0.6").toDouble

@@ -17,9 +17,7 @@ lazy val root = (project in file("."))
     ),
     Compile / mainClass := Some("datamart.DataMartApp"),
     scalacOptions ++= Seq("-deprecation", "-feature"),
-    Compile / packageDoc / publishArtifact := false, // scaladoc в образе не нужен
-    // Spark на Java 17 без spark-submit: открываем внутренние пакеты JDK вручную
-    // (тот же список, что Spark передаёт сам — JavaModuleOptions).
+    Compile / packageDoc / publishArtifact := false, 
     Universal / javaOptions ++= Seq(
       "-J-XX:+IgnoreUnrecognizedVMOptions",
       "-J--add-opens=java.base/java.lang=ALL-UNNAMED",
