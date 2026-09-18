@@ -10,6 +10,18 @@
     "shuffle_partitions": 8,
     "log_level": "WARN"
   },
+  "data": {
+    "raw_path": "data/en.openfoodfacts.org.products.csv",
+    "interim_path": "data/interim/products.parquet",
+    "report_path": "reports/preprocess_report.json"
+  },
+  "sampling": {
+    "seed": 42,
+    "rows_per_core": 50000,
+    "copies_in_memory": 3,
+    "memory_overhead": 4,
+    "max_rows": 500000
+  },
   "datasource": {
     "host": "localhost",
     "port": 1433,

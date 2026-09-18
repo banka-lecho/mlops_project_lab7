@@ -12,6 +12,16 @@ final case class ServerConfig(host: String, port: Int, threads: Int)
 
 final case class SparkConfig(appName: String, master: String, shufflePartitions: Int, logLevel: String)
 
+final case class DataConfig(rawPath: String, interimPath: String, reportPath: String)
+
+final case class SamplingConfig(
+    seed: Long,
+    rowsPerCore: Int,
+    copiesInMemory: Int,
+    memoryOverhead: Int,
+    maxRows: Int
+)
+
 final case class DatasourceConfig(
     host: String,
     port: Int,
@@ -29,7 +39,13 @@ final case class DatasourceConfig(
   override def toString: String = s"DatasourceConfig($host:$port/$database)" 
 }
 
-final case class MartConfig(server: ServerConfig, spark: SparkConfig, datasource: DatasourceConfig)
+final case class MartConfig(
+    server: ServerConfig,
+    spark: SparkConfig,
+    data: DataConfig,
+    sampling: SamplingConfig,
+    datasource: DatasourceConfig
+)
 
 object MartConfig {
 
@@ -44,6 +60,8 @@ object MartConfig {
     MartConfig(
       server = file.server,
       spark = file.spark,
+      data = file.data,
+      sampling = file.sampling,
       datasource = DatasourceConfig(
         host = env.getOrElse("MSSQL_HOST", ds.host),
         port = env.get("MSSQL_PORT").map(_.toInt).getOrElse(ds.port),
@@ -70,7 +88,13 @@ object MartConfig {
       fetchSize: Int,
       batchSize: Int
   )
-  private final case class FileConfig(server: ServerConfig, spark: SparkConfig, datasource: FileDatasource)
+  private final case class FileConfig(
+      server: ServerConfig,
+      spark: SparkConfig,
+      data: DataConfig,
+      sampling: SamplingConfig,
+      datasource: FileDatasource
+  )
 
   private implicit val serverDecoder: Decoder[ServerConfig] =
     Decoder.forProduct3("host", "port", "threads")(ServerConfig.apply)
@@ -80,6 +104,12 @@ object MartConfig {
     Decoder.forProduct7("host", "port", "database", "raw_schema", "ml_schema", "fetch_size", "batch_size")(
       FileDatasource.apply
     )
+  private implicit val dataDecoder: Decoder[DataConfig] =
+    Decoder.forProduct3("raw_path", "interim_path", "report_path")(DataConfig.apply)
+  private implicit val samplingDecoder: Decoder[SamplingConfig] =
+    Decoder.forProduct5("seed", "rows_per_core", "copies_in_memory", "memory_overhead", "max_rows")(
+      SamplingConfig.apply
+    )
   private implicit val fileDecoder: Decoder[FileConfig] =
-    Decoder.forProduct3("server", "spark", "datasource")(FileConfig.apply)
+    Decoder.forProduct5("server", "spark", "data", "sampling", "datasource")(FileConfig.apply)
 }

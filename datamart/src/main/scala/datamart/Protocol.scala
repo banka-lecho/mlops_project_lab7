@@ -43,6 +43,8 @@ object Protocol {
 
   final case class GetPredictionsRequest(runId: Int)
 
+  final case class PreprocessRequest(rawPath: Option[String], maxRows: Option[Int])
+
   implicit val startRunDecoder: Decoder[StartRunRequest] = deriveDecoder
   implicit val finishRunDecoder: Decoder[FinishRunRequest] = deriveDecoder
   implicit val trainRunDecoder: Decoder[TrainRunRequest] = deriveDecoder
@@ -51,6 +53,7 @@ object Protocol {
     Decoder.forProduct2("code", "cluster_id")(PredictionRow.apply)
   implicit val savePredictionsDecoder: Decoder[SavePredictionsRequest] = deriveDecoder
   implicit val getPredictionsDecoder: Decoder[GetPredictionsRequest] = deriveDecoder
+  implicit val preprocessDecoder: Decoder[PreprocessRequest] = deriveDecoder
 
   val Status = "status"
   val Data = "data"

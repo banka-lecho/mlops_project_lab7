@@ -68,6 +68,14 @@ object DataMartApp {
       )
     }
 
+    val preprocessor = new Preprocessor(spark, config, store)
+
+    route(server, "POST", "/v1/preprocess") { body =>
+      val req = decodeRequest[PreprocessRequest](body)
+      if (req.maxRows.exists(_ <= 0)) throw badRequest("maxRows должен быть положительным")
+      preprocessor.run(req)
+    }
+
     route(server, "POST", "/v1/features") { body =>
       val req = decodeRequest[FeaturesRequest](body)
       if (req.limit.exists(_ <= 0)) throw badRequest("limit должен быть положительным")

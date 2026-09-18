@@ -21,7 +21,6 @@ lazy val root = (project in file("."))
     // Spark на Java 17 без spark-submit: открываем внутренние пакеты JDK вручную
     // (тот же список, что Spark передаёт сам — JavaModuleOptions).
     Universal / javaOptions ++= Seq(
-      "-J-Xmx2g",
       "-J-XX:+IgnoreUnrecognizedVMOptions",
       "-J--add-opens=java.base/java.lang=ALL-UNNAMED",
       "-J--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",

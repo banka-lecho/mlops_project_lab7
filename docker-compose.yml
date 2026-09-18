@@ -42,12 +42,18 @@ services:
       dockerfile: Dockerfile.datamart
     image: mlops-datamart
     container_name: openfoodfacts-datamart
+    working_dir: /app
     environment:
+      # для предобработки 13 ГБ CSV можно поднять: DATAMART_JAVA_OPTS=-Xmx4g docker compose up -d datamart
+      JAVA_OPTS: ${DATAMART_JAVA_OPTS:--Xmx2g}
       MSSQL_HOST: mssql
       MSSQL_USER: ${MSSQL_USER:?задайте MSSQL_USER в .env}
       MSSQL_PASSWORD: ${MSSQL_PASSWORD:?задайте MSSQL_PASSWORD в .env}
     ports:
       - "8090:8090"
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8090'"]
       interval: 5s
