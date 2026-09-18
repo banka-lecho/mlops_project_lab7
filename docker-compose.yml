@@ -72,9 +72,6 @@ services:
     container_name: openfoodfacts-kmeans-app
     environment:
       DATAMART_URL: http://datamart:8090
-      MSSQL_HOST: mssql
-      MSSQL_USER: ${MSSQL_USER:?задайте MSSQL_USER в .env}
-      MSSQL_PASSWORD: ${MSSQL_PASSWORD:?задайте MSSQL_PASSWORD в .env}
     volumes:
       - ./src:/app/src
       - ./data:/app/data
@@ -83,7 +80,7 @@ services:
     depends_on:
       datamart:
         condition: service_healthy
-    command: ["preprocess"]
+    command: ["train"]
 
 volumes:
   mssql-data:

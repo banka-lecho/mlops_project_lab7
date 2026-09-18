@@ -1,8 +1,9 @@
-# Lab 6: PySpark KMeans на Open Food Facts + MS SQL Server
+# Lab 7: витрина данных на Scala между моделью и MS SQL Server
 
 Кластеризация продуктов Open Food Facts по пищевой ценности (на 100г) с помощью Spark ML KMeans.
-Очищенные данные, журнал запусков и предсказания хранятся в MS SQL Server; модель работает с базой
-через Spark JDBC и `pymssql`.
+Модель не обращается к базе напрямую: между ними стоит витрина данных на Scala
+([`datamart/`](datamart)). Витрина готовит данные (чтение сырого CSV, очистка, выборка),
+хранит их в MS SQL Server и общается с моделью по HTTP в едином JSON-формате.
 
 ## Установка
 
@@ -12,21 +13,25 @@
 cp .env.example .env
 ```
 
-Положите сырой датасет в `data/en.openfoodfacts.org.products.csv` (путь задаётся в `src/config.json` → `data.raw_path`).
+Положите сырой датасет в `data/en.openfoodfacts.org.products.csv`
 
 ### Через Docker
 
 ```bash
-docker compose up -d mssql mssql-init
+docker compose up -d mssql mssql-init datamart
 ```
 
-`mssql-init` прогоняет [`docker/mssql/init/schema.sql`](docker/mssql/init/schema.sql) — скрипт идемпотентен,
-повторный запуск на существующей базе безопасен. Данные базы лежат в volume `mssql-data` и переживают
-`docker compose down` (удалить: `docker compose down -v`).
+Витрина собирается из [`Dockerfile.datamart`](Dockerfile.datamart) (sbt внутри образа) и слушает порт 8090:
+
+```bash
+curl localhost:8090/health
+```
+
+`mssql-init` прогоняет [`docker/mssql/init/schema.sql`](docker/mssql/init/schema.sql). Данные базы лежат в volume `mssql-data` и переживают `docker compose down`.
 
 ### Локально
 
-Нужна Java (Spark — JVM-приложение) и поднятый контейнер `mssql`:
+Нужна Java и поднятые контейнеры `mssql` и `datamart`:
 
 ```bash
 brew install openjdk@17
@@ -42,102 +47,96 @@ set -a; source .env; set +a
 ## Конфигурация
 
 Все настройки — в [`src/config.json`](src/config.json): пути к данным/артефактам (`data`), какие колонки брать (`features`),
-как считается размер сэмпла (`sampling`), параметры модели (`model`, включая диапазон `k`), подключение к базе (`datasource`).
+параметры модели (`model`, включая диапазон `k`), адрес витрины (`datamart`).
 Ресурсы машины (ядра, RAM) не задаются вручную — определяются в рантайме (`src/spark_session.py`), конфиг лишь ограничивает,
-сколько от них брать.
+сколько от них брать. Адрес витрины переопределяется переменной `DATAMART_URL`.
 
-Переменные окружения важнее конфига: `MSSQL_HOST` / `MSSQL_PORT` переопределяют `datasource.host` / `datasource.port`, `MSSQL_USER` / `MSSQL_PASSWORD` обязательны.
+Настройки витрины — в [`datamart/src/main/resources/config.json`](datamart/src/main/resources/config.json):
+HTTP-сервер (`server`), Spark (`spark`), пути к данным (`data`), размер выборки (`sampling`), подключение к базе (`datasource`).
+Переменные окружения важнее конфига: `MSSQL_HOST` / `MSSQL_PORT` переопределяют `datasource.host` / `datasource.port`,
+`MSSQL_USER` / `MSSQL_PASSWORD` обязательны и берутся только из окружения. Память витрины задаётся через `JAVA_OPTS`
+(по умолчанию `-Xmx2g`, для предобработки полного CSV: `DATAMART_JAVA_OPTS=-Xmx4g docker compose up -d datamart`).
 
 ## Запуск
 
 ```bash
-# 1. Предобработка: сырой CSV -> отбор колонок -> очистка -> сэмпл -> raw.processed_data
-docker compose run --rm app preprocess
+# Предобработка на стороне витрины
+curl -X POST localhost:8090/v1/preprocess -d '{}'
 
-# 2. Обучение: подбор k по silhouette, модель/скейлер на диск, предсказания и метрики в базу
+# Обучение: подбор k по silhouette, модель на диск, предсказания и метрики через витрину
 docker compose run --rm app train
 
-# 3. Инференс моделью последнего успешного обучения
+# Инференс последней успешной модели
 docker compose run --rm app predict --output data/processed/predictions.parquet
 ```
 
-Локально те же команды: `python src/main.py preprocess|train|predict`.
+Локально те же команды модели: `python src/main.py train|predict`.
 
-Результаты:
-- `raw.processed_data` — очищенная выборка признаков
-- `ml.model_runs` — журнал запусков со статусом, метриками и путями к артефактам
-- `ml.predictions` — номер кластера для каждого продукта в разрезе запуска
-- `models/kmeans/run_<run_id>`, `models/scaler/run_<run_id>` — обученные артефакты
-- `reports/preprocess_report.json` — сколько строк отсеялось на каждом шаге очистки
-- `data/processed/predictions.parquet` — выгрузка предсказаний `predict` вместе с признаками
+## Протокол взаимодействия: модель — витрина — источник данных
 
-## Протокол взаимодействия между моделью и источником данных
+**Кто участвует.** 
+- Модель на PySpark
+- Витрина данных на Scala
+- Источник данных — MS SQL Server.
 
-**Кто участвует.** Модель на Spark. Источник данных — база MS SQL Server.
-Модель всегда начинает первой: сама забирает данные и сама отправляет результаты. База только отвечает.
+Модель всегда начинает первой и обращается только к витрине. В базу ходит исключительно витрина:
+логин и пароль есть только у неё.
 
-**Как подключаемся.** По сети на порт 1433, логин и пароль берутся из переменных `MSSQL_USER` и `MSSQL_PASSWORD`.
-Весь код работы с базой находится в [`src/datasource.py`](src/datasource.py):
-- большие объёмы данных (сотни тысяч строк) читаются и пишутся через Spark JDBC;
-- короткие служебные запросы в одну строку идут через библиотеку `pymssql`.
+**Как общаются.** 
+- HTTP на порт 8090, тело запроса и ответа — JSON.
+- Клиент со стороны модели — [`src/datamart_client.py`](src/datamart_client.py),
+- Сервер со стороны витрины — [`datamart/src/main/scala/datamart/DataMartApp.scala`](datamart/src/main/scala/datamart/DataMartApp.scala).
 
-**Запуск.** Каждый вызов `train` или `predict` записывается в базу отдельной строкой с номером `run_id`.
-Номер выдаёт сама база. Все результаты помечаются этим номером, поэтому разные запуски не перемешиваются.
+**Единый формат ответа.** Успех:
+
+```json
+{"status": "ok", "data": {}}
+```
+
+Ошибка (код 400, 404, 409 или 500):
+
+```json
+{"status": "error", "error": "Описание ошибки"}
+```
+
+Служебные поля называются в camelCase (`runId`, `rowCount`), поля строк данных — как колонки в базе
+(`code`, `cluster_id`, `energy_kcal_100g`). Формат описан в
+[`Protocol.scala`](datamart/src/main/scala/datamart/Protocol.scala), там же задан список признаков.
+
+### Эндпоинты витрины
+
+| Запрос | Тело | `data` в ответе |
+|---|---|---|
+| `POST /v1/preprocess` | `{}` или `{"rawPath": "...", "maxRows": 100000}` | отчёт об очистке и выборке |
+| `POST /v1/features` | `{}` или `{"limit": 1000}` | `featureCols`, `rowCount`, `rows` |
+| `POST /v1/runs/start` | `{"command": "train", "scalerPath": "...", "params": {}}` | `runId` |
+| `POST /v1/runs/finish` | `{"runId": 1, "status": "SUCCESS", ...}` | `runId` |
+| `POST /v1/runs/train` | `{}` или `{"runId": 1}` | `runId`, `modelPath`, `scalerPath` |
+| `POST /v1/predictions` | `{"runId": 1, "rows": [{"code": "...", "cluster_id": 2}]}` | `runId`, `saved` |
+| `POST /v1/predictions/get` | `{"runId": 1}` | `featureCols`, `rowCount`, `rows` |
+| `GET /health` | — | `sparkVersion`, `database` |
+
+### Предобработка (`/v1/preprocess`)
+
+Выполняется целиком на стороне витрины.Статистика по шагам возвращается в ответе и пишется в `reports/preprocess_report.json`.
 
 ### Обучение (`train`)
 
-1. **Регистрация.** Модель сообщает базе, что начинает обучение. База создаёт запись со статусом `RUNNING` и возвращает `run_id`.
-2. **Выгрузка данных.** Модель забирает признаки товаров из таблицы `raw.processed_data`.
-3. **Обучение.** Модель подбирает число кластеров и обучается. Обученная модель сохраняется на диск в папку `models/`.
-4. **Загрузка результатов.** Модель записывает в таблицу `ml.predictions` номер кластера для каждого товара.
-5. **Завершение.** Модель ставит статус `SUCCESS` и записывает метрики: число кластеров и оценку качества.
+1. **Регистрация.** Модель просит витрину открыть запуск. Витрина вставляет строку в `ml.model_runs` со статусом `RUNNING` и возвращает `run_id`.
+2. **Данные.** Модель запрашивает признаки. Витрина читает `raw.processed_data` и отдаёт строки JSON вместе со списком колонок.
+3. **Обучение.** Модель подбирает число кластеров и обучается. Модель и скейлер сохраняются на диск в `models/`.
+4. **Результаты.** Модель отправляет витрине кластер каждого товара, витрина пишет их в `ml.predictions`.
+5. **Завершение.** Модель просит закрыть запуск: статус `SUCCESS`, число кластеров и оценка качества.
 
-Если на любом шаге произошла ошибка, запуск получает статус `FAILED`, а текст ошибки сохраняется в базе.
+Если на любом шаге произошла ошибка, модель закрывает запуск статусом `FAILED`, и текст ошибки сохраняется в базе.
 
 ### Предсказание (`predict`)
 
 Порядок тот же, но вместо обучения:
-- модель сначала спрашивает у базы, какое обучение было последним успешным и где на диске лежит его модель;
-- загружает эту модель и применяет её к данным;
-- после записи результатов читает их обратно из базы и сохраняет в parquet-файл.
+- модель спрашивает у витрины, какое обучение было последним успешным и где лежит его модель;
+- загружает модель с диска и применяет её к данным от витрины;
+- после отправки результатов запрашивает их обратно и сохраняет в parquet-файл.
 
-### Предобработка (`preprocess`)
-
-Подготовительный шаг перед работой модели: читает исходный CSV, очищает данные
-и записывает их в `raw.processed_data`. Прежнее содержимое таблицы заменяется.
-
-### Схема
-
-```mermaid
-sequenceDiagram
-    participant M as Модель (Spark)
-    participant DB as MS SQL Server
-
-    Note over M,DB: preprocess
-    M->>DB: write_processed — TRUNCATE + INSERT raw.processed_data
-
-    Note over M,DB: train
-    M->>DB: start_run('train') — INSERT ml.model_runs
-    DB-->>M: run_id
-    M->>DB: fetch_training_data — SELECT raw.processed_data
-    DB-->>M: признаки
-    Note over M: VectorAssembler → StandardScaler → KMeans(k_min..k_max),<br/>модель и скейлер → models/*/run_<run_id>
-    M->>DB: save_predictions — INSERT ml.predictions
-    M->>DB: finish_run(SUCCESS, best_k, silhouette, пути) — UPDATE ml.model_runs
-
-    Note over M,DB: predict
-    M->>DB: get_train_run — SELECT ml.model_runs
-    DB-->>M: train run_id, model_path, scaler_path
-    M->>DB: start_run('predict')
-    DB-->>M: run_id
-    M->>DB: fetch_training_data
-    DB-->>M: признаки
-    Note over M: загрузка скейлера и модели с диска, transform
-    M->>DB: save_predictions
-    M->>DB: finish_run(SUCCESS)
-    M->>DB: fetch_predictions — JOIN predictions + processed_data
-    DB-->>M: code, cluster_id, признаки → parquet
-```
 
 ## Формат хранения данных
 

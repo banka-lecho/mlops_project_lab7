@@ -21,11 +21,6 @@ RUN mkdir -p data models reports logs && chown -R app:app /app
 
 USER app
 
-RUN python -c "from pyspark.sql import SparkSession; \
-    SparkSession.builder.master('local[1]') \
-    .config('spark.jars.packages', 'com.microsoft.sqlserver:mssql-jdbc:12.8.1.jre11') \
-    .getOrCreate().stop()"
-
 COPY --chown=app:app src ./src
 
 ENTRYPOINT ["python", "src/main.py"]

@@ -9,9 +9,6 @@ from utils import SparkConfig
 
 logger = get_logger(__name__)
 
-RESERVED_MEMORY_MB = 300
-
-
 @dataclass(frozen=True)
 class SparkResources:
     machine_cores: int
@@ -47,7 +44,6 @@ def create_spark(config: SparkConfig, resources: SparkResources) -> SparkSession
         SparkSession.builder.appName(config.app_name)
         .master(f"local[{resources.cores}]")
         .config("spark.driver.memory", f"{resources.driver_memory_gb}g")
-        .config("spark.jars.packages", "com.microsoft.sqlserver:mssql-jdbc:12.8.1.jre11")
         .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
         .getOrCreate()
     )

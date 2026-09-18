@@ -1,7 +1,3 @@
-import json
-import random
-from pathlib import Path
-
 from pyspark.ml.clustering import KMeans, KMeansModel
 from pyspark.ml.evaluation import ClusteringEvaluator
 from pyspark.ml.feature import StandardScaler, StandardScalerModel, VectorAssembler
@@ -43,47 +39,6 @@ class ModelKMEANS:
                 best_k, best_score, best_model = i, score, model
 
         return best_k, best_score, best_model, scores
-
-    def save_results(
-        self, best_k, best_score, best_model, scaler_model, predictions, scores
-    ):
-        """Сохраняет обученную модель, скейлер, предсказания по образцам и отчёт с метриками."""
-        model_path = self.config.model.model_path
-        scaler_path = self.config.model.scaler_path
-        predictions_path = self.config.model.predictions_path
-        metrics_path = Path(self.config.model.metrics_path)
-
-        best_model.write().overwrite().save(model_path)
-        logger.info("Модель сохранена в %s", model_path)
-
-        scaler_model.write().overwrite().save(scaler_path)
-        logger.info("Скейлер сохранён в %s", scaler_path)
-
-        predictions.select(*self.config.features.meta, "prediction").write.mode(
-            "overwrite"
-        ).parquet(predictions_path)
-        logger.info("Предсказания сохранены в %s", predictions_path)
-
-        cluster_sizes = (
-            predictions.groupBy("prediction").count().orderBy("prediction").collect()
-        )
-
-        report = {
-            "silhouette_by_k": scores,
-            "best_k": best_k,
-            "best_silhouette": best_score,
-            "cluster_sizes": {
-                str(row["prediction"]): row["count"] for row in cluster_sizes
-            },
-            "cluster_centers": [
-                center.tolist() for center in best_model.clusterCenters()
-            ],
-            "features_order": self.config.features.numeric,
-        }
-        metrics_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(metrics_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-        logger.info("Отчёт с метриками сохранён в %s", metrics_path)
 
     def train(self):
         """Train KMeans model."""

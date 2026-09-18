@@ -15,39 +15,10 @@ class SparkConfig:
 
 
 @dataclass(frozen=True)
-class DataConfig:
-    raw_path: str
-    interim_path: str
-    sample_path: str
-    report_path: str
-
-
-@dataclass(frozen=True)
-class FeaturesConfig:
-    numeric: list[str]
-    meta: list[str]
-
-
-@dataclass(frozen=True)
-class CleaningConfig:
-    energy_abs_tol_kcal: float
-    energy_rel_tol: float
-
-
-@dataclass(frozen=True)
-class SamplingConfig:
-    seed: int
-    rows_per_core: int
-    copies_in_memory: int
-    memory_overhead: int
-
-
-@dataclass(frozen=True)
 class ModelConfig:
     model_path: str
     scaler_path: str
     predictions_path: str
-    metrics_path: str
     k_min: int
     k_max: int
 
@@ -60,26 +31,10 @@ class DataMartConfig:
 
 
 @dataclass(frozen=True)
-class DBConfig:
-    host: str
-    port: str
-    database: str
-    raw_schema: str
-    ml_schema: str
-    num_partitions: int
-    tables: list[str]
-
-
-@dataclass(frozen=True)
 class Config:
     spark: SparkConfig
-    data: DataConfig
-    features: FeaturesConfig
-    cleaning: CleaningConfig
-    sampling: SamplingConfig
     model: ModelConfig
     datamart: DataMartConfig
-    database: DBConfig
 
 
 def load_config(config_path: str | None = None) -> Config:
@@ -95,11 +50,6 @@ def load_config(config_path: str | None = None) -> Config:
 
     return Config(
         spark=SparkConfig(**data["spark"]),
-        data=DataConfig(**data["data"]),
-        features=FeaturesConfig(**data["features"]),
-        cleaning=CleaningConfig(**data["cleaning"]),
-        sampling=SamplingConfig(**data["sampling"]),
         model=ModelConfig(**data["model"]),
         datamart=DataMartConfig(**data["datamart"]),
-        database=DBConfig(**data["datasource"]),
     )

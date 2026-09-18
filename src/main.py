@@ -1,8 +1,6 @@
 import argparse
 
 from model import ModelKMEANS
-from preprocess import PreProcessor
-from datasource import MsSqlDataSource
 
 
 def parse_args():
@@ -11,8 +9,6 @@ def parse_args():
         description="Обучение и инференс KMeans на Open Food Facts"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    subparsers.add_parser("preprocess", help="Преобработать данные и загрузить в БД")
 
     subparsers.add_parser(
         "train", help="Обучить модель и сохранить модель/скейлер/отчёт"
@@ -40,13 +36,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    datasource = MsSqlDataSource()
-    preprocessor = PreProcessor(datasource)
     model = ModelKMEANS()
 
-    if args.command == "preprocess":
-        preprocessor.run()
-    elif args.command == "train":
+    if args.command == "train":
         model.train()
     elif args.command == "predict":
         predictions_path = args.predictions_path or model.config.model.predictions_path
